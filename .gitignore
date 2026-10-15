@@ -1,0 +1,49 @@
+# System & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Node / Frontend Dependencies & Builds
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+dist-ssr/
+*.local
+
+# Python Environments & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/venv/
+ml/venv/
+venv/
+.venv/
+env/
+
+# ML Data & Trained Model Weights (All directories)
+*.pth
+*.pt
+*.h5
+*.onnx
+ml/data/raw/*
+ml/data/processed/*
+!ml/data/raw/.gitkeep
+!ml/data/processed/.gitkeep
+!ml/models/.gitkeep
+
+# Secret Credentials & Environment Variables
+.env
+.env.local
+.env.*.local
+*.env
+firebase-credentials.json
+backend/firebase-credentials.json
+firebase-debug.log*
+
+# Allow template files to be tracked
+!frontend/.env.example
+!backend/firebase-credentials.example.json
