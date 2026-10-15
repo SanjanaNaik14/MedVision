@@ -53,3 +53,25 @@ export const getPatientsByDoctor = async (doctorId: string): Promise<Patient[]> 
     throw new Error("Could not fetch patients from database.");
   }
 };
+
+// 3. Delete a patient from the database via backend API
+export const deletePatient = async (patientId: string, token?: string | null): Promise<void> => {
+  try {
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const response = await fetch(`http://127.0.0.1:8000/api/patients/${patientId}`, {
+      method: 'DELETE',
+      headers,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.detail || 'Could not delete patient from database.');
+    }
+  } catch (error) {
+    console.error("Error deleting patient: ", error);
+    throw error;
+  }
+};

@@ -177,3 +177,14 @@ async def predict(
     except Exception as e:
         print(f"Inference error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Mount v1 route alias for explicit versioning compatibility
+app.add_api_route("/api/v1/predict", predict, methods=["POST"])
+
+# Mount Stage 3 Multi-Label Pathology Screening v2 router
+from app.api.v2_routes import router as v2_router
+app.include_router(v2_router, prefix="/api/v2")
+
+# Mount Patient management router
+from app.api.patient_routes import router as patient_router
+app.include_router(patient_router, prefix="/api/patients")

@@ -6,6 +6,12 @@ import { db } from '../services/firebase';
 import { getPatientsByDoctor, type Patient } from '../services/patientService';
 import { AppLayout } from '../components/AppLayout';
 import { generatePdfReport } from '../utils/generatePdfReport';
+import { MultiLabelFindings } from '../components/MultiLabelFindings';
+import { ComparativeAnalysisView } from '../components/ComparativeAnalysisView';
+import {
+  type MultiLabelPredictionResult,
+  type ComparativeAnalysisResult,
+} from '../types/multilabel';
 
 interface PredictionResult {
   examination_id: string;
@@ -21,6 +27,9 @@ export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const patientId = searchParams.get('patientId');
 
+  // Mode Switcher state: v1 baseline vs v2 14-pathology vs v3 comparative
+  const [screeningMode, setScreeningMode] = useState<'v1_pneumonia' | 'v2_multilabel' | 'v3_compare'>('v1_pneumonia');
+
   const [patient, setPatient] = useState<Patient | null>(null);
   const [availablePatients, setAvailablePatients] = useState<Patient[]>([]);
   const [loadingPatients, setLoadingPatients] = useState<boolean>(false);
@@ -32,6 +41,26 @@ export const Dashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [generatingPdf, setGeneratingPdf] = useState<boolean>(false);
+
+  // Stage 3 & 4: Multi-Label v2 State
+  const [v2Result, setV2Result] = useState<MultiLabelPredictionResult | null>(null);
+  const [v2Loading, setV2Loading] = useState<boolean>(false);
+  const [v2Error, setV2Error] = useState<string | null>(null);
+  const [currentUserToken, setCurrentUserToken] = useState<string | null>(null);
+
+  // Stage 6: Comparative Dual-Model View State
+  const [compareResult, setCompareResult] = useState<ComparativeAnalysisResult | null>(null);
+  const [compareLoading, setCompareLoading] = useState<boolean>(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
+
+
+  useEffect(() => {
+    if (currentUser) {
+      currentUser.getIdToken().then(setCurrentUserToken).catch(console.error);
+    } else {
+      setCurrentUserToken(null);
+    }
+  }, [currentUser]);
 
   // Fetch patient details if patientId is provided in URL
   useEffect(() => {
@@ -173,14 +202,180 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const handleV2Upload = async () => {
+    if (!file || !currentUser) return;
+
+    if (!patientId) {
+      setV2Error('Please select or register a patient before screening.');
+      return;
+    }
+
+    setV2Loading(true);
+    setV2Error(null);
+
+    try {
+      const token = await currentUser.getIdToken();
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('patient_id', patientId);
+
+      const response = await fetch('http://127.0.0.1:8000/api/v2/predict', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || 'Multi-label inference pipeline error. Check backend server.');
+      }
+
+      const data: MultiLabelPredictionResult = await response.json();
+      setV2Result(data);
+    } catch (err) {
+      const errorObject = err as Error;
+      setV2Error(errorObject.message || 'Error connecting to multi-label inference backend.');
+    } finally {
+      setV2Loading(false);
+    }
+  };
+
+  const handleCompareUpload = async () => {
+    if (!file || !currentUser) return;
+
+    if (!patientId) {
+      setCompareError('Please select or register a patient before comparative analysis.');
+      return;
+    }
+
+    setCompareLoading(true);
+    setCompareError(null);
+
+    try {
+      const token = await currentUser.getIdToken();
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('patient_id', patientId);
+
+      const response = await fetch('http://127.0.0.1:8000/api/v2/compare', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || 'Comparative analysis pipeline error. Check backend server.');
+      }
+
+      const data: ComparativeAnalysisResult = await response.json();
+      setCompareResult(data);
+
+      // Pre-seed individual model results so switching tabs has data ready
+      if (!result && data.v1_result) {
+        setResult({
+          examination_id: data.examination_id,
+          filename: data.filename,
+          prediction: data.v1_result.prediction,
+          confidence: data.v1_result.pneumonia_probability,
+          gradcam: data.v1_result.heatmap_base64,
+        });
+      }
+      if (!v2Result && data.v2_result) {
+        setV2Result({
+          examination_id: data.examination_id,
+          filename: data.filename,
+          model_version: data.v2_result.model_version || 'v2.0-densenet121-nih14',
+          primary_finding: data.v2_result.primary_finding,
+          primary_confidence: data.v2_result.primary_confidence,
+          findings: data.v2_result.findings,
+          heatmap_base64: data.v2_result.heatmap_base64,
+        });
+      }
+    } catch (err) {
+      const errorObject = err as Error;
+      setCompareError(errorObject.message || 'Error connecting to comparative inference backend.');
+    } finally {
+      setCompareLoading(false);
+    }
+  };
+
   const isHighRisk = result ? result.confidence >= 0.40 : false;
 
   return (
     <AppLayout breadcrumbs={[{ label: 'Clinical Workspace' }, { label: 'X-Ray Screening' }]}>
+      {/* Mode Switcher Segmented Control */}
+      <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-2 bg-[#EAF1F6] border border-[#D0DFEB] rounded-xl shadow-xs">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => setScreeningMode('v1_pneumonia')}
+            className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+              screeningMode === 'v1_pneumonia'
+                ? 'bg-white text-[#163B5C] shadow-xs border border-[#CBD5E1]'
+                : 'text-[#475569] hover:text-[#163B5C]'
+            }`}
+          >
+            <span>🫁</span>
+            <span>Pneumonia Screening (v1 Baseline)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setScreeningMode('v2_multilabel')}
+            className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+              screeningMode === 'v2_multilabel'
+                ? 'bg-[#163B5C] text-white shadow-xs'
+                : 'text-[#475569] hover:text-[#163B5C]'
+            }`}
+          >
+            <span>🔬</span>
+            <span>Comprehensive Thoracic (14 Findings - v2)</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-[#3D8C87] text-white font-semibold">
+              v2.0
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setScreeningMode('v3_compare')}
+            className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+              screeningMode === 'v3_compare'
+                ? 'bg-[#163B5C] text-white shadow-xs ring-1 ring-[#315D7D]'
+                : 'text-[#475569] hover:text-[#163B5C]'
+            }`}
+          >
+            <span>⚖️</span>
+            <span>Comparative View (Second Opinion)</span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-[#3D8C87] text-white font-semibold">
+              PATH B
+            </span>
+          </button>
+        </div>
+
+        <div className="hidden lg:flex items-center gap-2 text-[11px] font-mono text-[#64748B] pr-2">
+          <span>Active Pipeline:</span>
+          <span className="font-semibold text-[#163B5C]">
+            {screeningMode === 'v1_pneumonia'
+              ? 'DenseNet-121 Binary (Pneumonia)'
+              : screeningMode === 'v2_multilabel'
+              ? 'DenseNet-121 Multi-Label (NIH-14)'
+              : 'Dual-Pipeline Consensus (v1 + v2)'}
+          </span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
-        {/* Left Column: Patient Context & Upload Controls (5 cols) */}
-        <div className="lg:col-span-5 space-y-6">
+        {/* Left Column: Patient Context & Upload Controls */}
+        <div className={`space-y-6 ${screeningMode === 'v3_compare' ? 'lg:col-span-4' : 'lg:col-span-5'}`}>
+
           
           {/* Patient Selection Card */}
           <div className="clinical-card p-6">
@@ -319,35 +514,109 @@ export const Dashboard: React.FC = () => {
 
             {/* Submit Inference Button */}
             <button
-              onClick={handleUpload}
-              disabled={!file || loading || !patientId}
+              onClick={
+                screeningMode === 'v1_pneumonia'
+                  ? handleUpload
+                  : screeningMode === 'v2_multilabel'
+                  ? handleV2Upload
+                  : handleCompareUpload
+              }
+              disabled={
+                !file ||
+                (screeningMode === 'v1_pneumonia'
+                  ? loading
+                  : screeningMode === 'v2_multilabel'
+                  ? v2Loading
+                  : compareLoading) ||
+                !patientId
+              }
               className={`w-full mt-5 py-2.5 rounded-lg font-semibold text-sm transition-colors shadow-xs flex items-center justify-center gap-2 cursor-pointer ${
-                !file || loading || !patientId
+                !file ||
+                (screeningMode === 'v1_pneumonia'
+                  ? loading
+                  : screeningMode === 'v2_multilabel'
+                  ? v2Loading
+                  : compareLoading) ||
+                !patientId
                   ? 'bg-[#E2E8F0] text-[#94A3B8] cursor-not-allowed border border-[#CBD5E1]'
                   : 'text-white bg-[#315D7D] hover:bg-[#163B5C]'
               }`}
             >
-              {loading ? (
+              {(screeningMode === 'v1_pneumonia' ? loading : screeningMode === 'v2_multilabel' ? v2Loading : compareLoading) ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
-                  <span>Generating Grad-CAM & Running Inference...</span>
+                  <span>
+                    {screeningMode === 'v1_pneumonia'
+                      ? 'Generating Grad-CAM & Running Inference...'
+                      : screeningMode === 'v2_multilabel'
+                      ? 'Running 14-Pathology Screening & Grad-CAM...'
+                      : 'Running Dual-Model Inference & Discrepancy Analysis...'}
+                  </span>
                 </>
               ) : (
-                <span>Analyze Radiograph with AI</span>
+                <span>
+                  {screeningMode === 'v1_pneumonia'
+                    ? 'Analyze Radiograph with AI (Pneumonia)'
+                    : screeningMode === 'v2_multilabel'
+                    ? 'Analyze with AI (14 Thoracic Pathologies)'
+                    : 'Run Dual-Model Comparison (Second Opinion)'}
+                </span>
               )}
             </button>
 
-            {error && (
+            {(screeningMode === 'v1_pneumonia' ? error : screeningMode === 'v2_multilabel' ? v2Error : compareError) && (
               <div className="mt-4 p-3 rounded-lg bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-xs flex items-start gap-2">
                 <span className="font-bold">⚠</span>
-                <span>{error}</span>
+                <span>{screeningMode === 'v1_pneumonia' ? error : screeningMode === 'v2_multilabel' ? v2Error : compareError}</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Column: Diagnostic Findings & Explainability (7 cols) */}
-        <div className="lg:col-span-7 clinical-card p-6 lg:p-8 flex flex-col justify-between min-h-[560px]">
+        {/* Right Column: Comparative (v3) or Multi-Label (v2) or Single-Pneumonia (v1 Baseline) */}
+        {screeningMode === 'v3_compare' ? (
+          <div className="lg:col-span-8">
+            <ComparativeAnalysisView
+              patient={patient}
+              patientId={patientId}
+              file={file}
+              previewUrl={previewUrl}
+              result={compareResult}
+              loading={compareLoading}
+              error={compareError}
+              currentUserToken={currentUserToken}
+              onClear={() => {
+                setFile(null);
+                setPreviewUrl(null);
+                setCompareResult(null);
+                setCompareError(null);
+              }}
+              onRunComparison={handleCompareUpload}
+            />
+          </div>
+        ) : screeningMode === 'v2_multilabel' ? (
+          <div className="lg:col-span-7">
+            <MultiLabelFindings
+              patient={patient}
+              patientId={patientId}
+              file={file}
+              previewUrl={previewUrl}
+              result={v2Result}
+              loading={v2Loading}
+              error={v2Error}
+              currentUserToken={currentUserToken}
+              onClear={() => {
+                setFile(null);
+                setPreviewUrl(null);
+                setV2Result(null);
+                setV2Error(null);
+              }}
+              onRunInference={handleV2Upload}
+            />
+          </div>
+        ) : (
+          <div className="lg:col-span-7 clinical-card p-6 lg:p-8 flex flex-col justify-between min-h-[560px]">
+
           <div>
             <div className="flex items-center justify-between pb-4 border-b border-[#D9E2EA] mb-6">
               <div>
@@ -524,6 +793,7 @@ export const Dashboard: React.FC = () => {
             <strong className="text-[#163B5C]">Clinical Protocol:</strong> This screening inference operates at a calibrated sensitivity cutoff of 0.40 to minimize False Negatives. Findings must be validated by a certified radiologist before diagnostic or therapeutic actions are taken.
           </div>
         </div>
+        )}
 
       </div>
     </AppLayout>

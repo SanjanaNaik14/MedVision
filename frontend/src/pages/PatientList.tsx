@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getPatientsByDoctor, type Patient } from '../services/patientService';
+import { getPatientsByDoctor, deletePatient, type Patient } from '../services/patientService';
 import { AppLayout } from '../components/AppLayout';
 
 export const PatientList: React.FC = () => {
@@ -12,6 +12,7 @@ export const PatientList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchPatients = async () => {
@@ -39,6 +40,32 @@ export const PatientList: React.FC = () => {
       (p.patientId && p.patientId.toLowerCase().includes(query))
     );
   });
+
+  const handleDeletePatient = async (patientId: string, patientName: string) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to remove patient "${patientName}"? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(patientId);
+    setError(null);
+
+    try {
+      let token: string | null = null;
+      if (currentUser) {
+        token = await currentUser.getIdToken();
+      }
+      await deletePatient(patientId, token);
+      // Instant state update removing deleted patient from UI
+      setPatients((prev) => prev.filter((p) => p.id !== patientId));
+    } catch (err) {
+      const errorObj = err as Error;
+      setError(errorObj.message || 'Failed to remove patient record.');
+      console.error('Failed to remove patient:', err);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <AppLayout breadcrumbs={[{ label: 'Clinical Workspace' }, { label: 'Patient Directory' }]}>
@@ -183,6 +210,23 @@ export const PatientList: React.FC = () => {
                           >
                             Profile →
                           </Link>
+                          <button
+                            onClick={() => handleDeletePatient(patient.id!, patient.name)}
+                            disabled={deletingId === patient.id}
+                            className={`px-2.5 py-1.5 rounded-md border text-[11px] font-medium transition cursor-pointer flex items-center gap-1 ${
+                              deletingId === patient.id
+                                ? 'bg-[#FEE2E2] text-[#991B1B] border-[#FECACA] cursor-not-allowed'
+                                : 'bg-white hover:bg-[#FEF2F2] text-[#991B1B] border-[#FECACA]'
+                            }`}
+                            title="Delete Patient Record"
+                          >
+                            {deletingId === patient.id ? (
+                              <span className="w-3 h-3 border-2 border-[#991B1B]/40 border-t-[#991B1B] rounded-full animate-spin"></span>
+                            ) : (
+                              <span>🗑️</span>
+                            )}
+                            <span>Delete</span>
+                          </button>
                         </div>
                       </td>
                     </tr>

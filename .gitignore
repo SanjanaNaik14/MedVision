@@ -47,3 +47,18 @@ firebase-debug.log*
 # Allow template files to be tracked
 !frontend/.env.example
 !backend/firebase-credentials.example.json
+
+# Verify .gitignore covers heavy files
+cat << 'EOF' >> .gitignore
+# Models & Weights
+*.pth
+*.pt
+*.onnx
+models/
+backend/models/
+
+# Data
+data/
+*.csv
+*.npz
+EOF
