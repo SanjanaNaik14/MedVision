@@ -3,6 +3,9 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { getPatientsByDoctor, type Patient } from '../services/patientService';
+import { AppLayout } from '../components/AppLayout';
+import { generatePdfReport } from '../utils/generatePdfReport';
 
 interface PredictionResult {
   examination_id: string;
@@ -13,54 +16,109 @@ interface PredictionResult {
 }
 
 export const Dashboard: React.FC = () => {
-  const { currentUser, logout } = useAuth();
-  const [searchParams] = useSearchParams();
+  const { currentUser } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const patientId = searchParams.get('patientId');
 
-  const [patientName, setPatientName] = useState<string | null>(null);
+  const [patient, setPatient] = useState<Patient | null>(null);
+  const [availablePatients, setAvailablePatients] = useState<Patient[]>([]);
+  const [loadingPatients, setLoadingPatients] = useState<boolean>(false);
+
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [generatingPdf, setGeneratingPdf] = useState<boolean>(false);
 
+  // Fetch patient details if patientId is provided in URL
   useEffect(() => {
     const fetchPatient = async () => {
-      if (!patientId) return;
+      if (!patientId) {
+        setPatient(null);
+        return;
+      }
       try {
         const docRef = doc(db, 'patients', patientId);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
-          setPatientName(docSnap.data().name);
+          setPatient({ id: docSnap.id, ...docSnap.data() } as Patient);
         }
       } catch (err) {
-        console.error("Error fetching patient details:", err);
+        console.error('Error fetching patient details:', err);
       }
     };
     fetchPatient();
   }, [patientId]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      setFile(selectedFile);
+  // Load patient list so clinician can pick/switch patient on the fly
+  useEffect(() => {
+    const loadDoctorPatients = async () => {
+      if (!currentUser) return;
+      setLoadingPatients(true);
+      try {
+        const patients = await getPatientsByDoctor(currentUser.uid);
+        setAvailablePatients(patients);
+      } catch (err) {
+        console.error('Failed to load doctor patients:', err);
+      } finally {
+        setLoadingPatients(false);
+      }
+    };
+    loadDoctorPatients();
+  }, [currentUser]);
+
+  const handlePatientSelect = (selectedId: string) => {
+    if (selectedId) {
+      setSearchParams({ patientId: selectedId });
       setResult(null);
       setError(null);
+    }
+  };
 
-      if (!selectedFile.name.endsWith('.dcm')) {
-        setPreviewUrl(URL.createObjectURL(selectedFile));
-      } else {
-        setPreviewUrl(null);
-      }
+  const processSelectedFile = (selectedFile: File) => {
+    setFile(selectedFile);
+    setResult(null);
+    setError(null);
+
+    if (!selectedFile.name.toLowerCase().endsWith('.dcm')) {
+      setPreviewUrl(URL.createObjectURL(selectedFile));
+    } else {
+      setPreviewUrl(null);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      processSelectedFile(e.target.files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processSelectedFile(e.dataTransfer.files[0]);
     }
   };
 
   const handleUpload = async () => {
     if (!file || !currentUser) return;
-    
+
     if (!patientId) {
-      setError("Please select a patient from the Patients list before uploading an X-Ray.");
+      setError('Please select or register a patient before screening.');
       return;
     }
 
@@ -77,162 +135,397 @@ export const Dashboard: React.FC = () => {
       const response = await fetch('http://127.0.0.1:8000/predict', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error('Inference failed. Please check backend logs.');
+        throw new Error('Inference pipeline error. Please verify backend server is active.');
       }
 
       const data: PredictionResult = await response.json();
       setResult(data);
     } catch (err) {
       const errorObject = err as Error;
-      setError(errorObject.message || 'Error connecting to inference server.');
+      setError(errorObject.message || 'Error connecting to inference backend.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleDownloadReport = async () => {
+    if (!result || !patient) return;
+    setGeneratingPdf(true);
+    try {
+      await generatePdfReport(patient, {
+        id: result.examination_id,
+        prediction: result.prediction,
+        confidence: result.confidence,
+        filename: result.filename,
+        gradcam: result.gradcam,
+        createdAt: new Date(),
+      });
+    } catch (err) {
+      console.error('Failed to generate report:', err);
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
+  const isHighRisk = result ? result.confidence >= 0.40 : false;
+
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 p-8">
-      <header className="max-w-5xl mx-auto flex justify-between items-center pb-8 border-b border-slate-800">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-blue-400">MedVision</h1>
-          <p className="text-xs text-slate-400">Clinical Decision Support System</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/patients')} className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition">
-            Patient List
-          </button>
-          <span className="text-sm text-slate-400 border-l border-slate-700 pl-4">{currentUser?.email}</span>
-          <button onClick={logout} className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md transition">
-            Sign Out
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-5xl mx-auto mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700/50">
-          <h2 className="text-lg font-semibold mb-4 text-slate-200">
-            Upload Chest X-Ray
-          </h2>
+    <AppLayout breadcrumbs={[{ label: 'Clinical Workspace' }, { label: 'X-Ray Screening' }]}>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        
+        {/* Left Column: Patient Context & Upload Controls (5 cols) */}
+        <div className="lg:col-span-5 space-y-6">
           
-          {patientName ? (
-            <div className="mb-4 p-3 bg-blue-900/30 border border-blue-800/50 text-blue-200 text-sm rounded-lg flex justify-between items-center">
-              <span>Selected Patient: <strong>{patientName}</strong></span>
-              <button onClick={() => navigate('/patients')} className="text-xs underline text-blue-400 hover:text-blue-300">Change</button>
+          {/* Patient Selection Card */}
+          <div className="clinical-card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-mono uppercase tracking-wider text-[#163B5C] font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#315D7D]"></span>
+                Patient Context
+              </span>
+              <button
+                onClick={() => navigate('/add-patient')}
+                className="text-xs text-[#315D7D] hover:text-[#163B5C] font-medium transition"
+              >
+                + Register New
+              </button>
             </div>
-          ) : (
-            <div className="mb-4 p-3 bg-orange-950/40 border border-orange-800/50 text-orange-200 text-sm rounded-lg">
-              No patient selected. Please select a patient from the <button onClick={() => navigate('/patients')} className="underline">Patient List</button> first.
-            </div>
-          )}
 
-          <div className={`border-2 border-dashed rounded-lg p-6 text-center transition flex flex-col items-center justify-center min-h-[220px] ${patientId ? 'border-slate-700 hover:border-blue-500/50 cursor-pointer' : 'border-slate-800 opacity-50 cursor-not-allowed'}`}>
-            <input
-              type="file"
-              accept=".dcm,.png,.jpg,.jpeg"
-              onChange={handleFileChange}
-              className="hidden"
-              id="xray-upload"
-              disabled={!patientId}
-            />
-            <label htmlFor="xray-upload" className={patientId ? 'cursor-pointer' : 'cursor-not-allowed'}>
-              <span className="block text-sm text-slate-300 font-medium mb-1">Click to browse or drop file here</span>
-              <span className="block text-xs text-slate-500">Supports DICOM (.dcm), PNG, JPG</span>
-            </label>
-          </div>
-
-          {file && (
-            <div className="mt-4 p-3 bg-slate-800 rounded border border-slate-700 flex justify-between items-center text-xs">
-              <span className="truncate text-slate-300">{file.name}</span>
-              <span className="text-slate-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</span>
-            </div>
-          )}
-
-          <button
-            onClick={handleUpload}
-            disabled={!file || loading || !patientId}
-            className={`w-full mt-4 py-2.5 rounded-lg font-medium text-sm transition ${
-              !file || loading || !patientId
-                ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
-            }`}
-          >
-            {loading ? 'Generating Grad-CAM & Analyzing...' : 'Analyze Image'}
-          </button>
-
-          {error && <div className="mt-4 p-3 bg-red-950/50 border border-red-800/50 text-red-300 text-xs rounded">{error}</div>}
-        </div>
-
-        {/* Results Column */}
-        <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700/50 flex flex-col justify-between">
-          <div>
-            <h2 className="text-lg font-semibold mb-4 text-slate-200">Diagnostic Findings</h2>
-            
-            {/* Display Images (Original & Grad-CAM) */}
-            {result?.gradcam ? (
-              <div className="mb-4 grid grid-cols-2 gap-4">
+            {patient ? (
+              <div className="p-4 rounded-lg bg-[#EAF1F6] border border-[#D0DFEB] flex items-start justify-between">
                 <div>
-                  <span className="block text-[10px] text-slate-400 uppercase mb-1">Original X-Ray</span>
-                  <div className="rounded-lg overflow-hidden border border-slate-700 bg-black h-36 flex justify-center">
-                    {previewUrl && <img src={previewUrl} alt="Original" className="object-contain h-full" />}
+                  <h3 className="text-base font-bold text-[#163B5C]">{patient.name}</h3>
+                  <div className="flex items-center gap-2 mt-1 text-xs text-[#475569] font-mono">
+                    <span className="font-semibold text-[#163B5C]">{patient.patientCode}</span>
+                    <span>•</span>
+                    <span>{patient.age} Y / {patient.sex}</span>
+                    {patient.bloodGroup && (
+                      <>
+                        <span>•</span>
+                        <span className="text-[#3D8C87] font-semibold">{patient.bloodGroup}</span>
+                      </>
+                    )}
                   </div>
                 </div>
-                <div>
-                  <span className="block text-[10px] text-blue-400 uppercase mb-1">Grad-CAM Heatmap</span>
-                  <div className="rounded-lg overflow-hidden border border-blue-500/50 bg-black h-36 flex justify-center">
-                    <img src={result.gradcam} alt="Grad-CAM" className="object-contain h-full" />
-                  </div>
+                <button
+                  onClick={() => setSearchParams({})}
+                  className="px-2.5 py-1 text-xs font-medium rounded bg-white hover:bg-[#F8FAFC] text-[#475569] border border-[#D9E2EA] transition"
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-[#64748B]">
+                  Select a registered patient to associate with this screening radiograph:
+                </p>
+                <select
+                  value=""
+                  onChange={(e) => handlePatientSelect(e.target.value)}
+                  className="w-full bg-white border border-[#D9E2EA] rounded-lg p-2.5 text-xs text-[#243447] focus:border-[#315D7D] focus:ring-1 focus:ring-[#315D7D] outline-none transition"
+                  disabled={loadingPatients}
+                >
+                  <option value="" disabled>
+                    {loadingPatients ? 'Loading patient list...' : 'Choose patient from directory...'}
+                  </option>
+                  {availablePatients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.patientCode} • Age {p.age})
+                    </option>
+                  ))}
+                </select>
+
+                <div className="text-center pt-2">
+                  <span className="text-[11px] text-[#94A3B8]">or</span>{' '}
+                  <button
+                    onClick={() => navigate('/patients')}
+                    className="text-xs text-[#315D7D] hover:text-[#163B5C] underline font-medium"
+                  >
+                    browse complete patient directory
+                  </button>
                 </div>
               </div>
-            ) : previewUrl && (
-              <div className="mb-4 rounded-lg overflow-hidden border border-slate-700 max-h-[180px] bg-black flex justify-center">
-                <img src={previewUrl} alt="X-Ray Preview" className="object-contain" />
+            )}
+          </div>
+
+          {/* Radiograph Ingestion Card */}
+          <div className="clinical-card p-6">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-mono uppercase tracking-wider text-[#163B5C] font-semibold">
+                Radiograph Ingestion
+              </span>
+              <span className="text-[10px] font-mono text-[#64748B] uppercase">
+                DICOM / PNG / JPEG
+              </span>
+            </div>
+
+            {/* Drag and Drop Zone */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors flex flex-col items-center justify-center min-h-[200px] ${
+                !patientId
+                  ? 'border-[#E2E8F0] bg-[#F8FAFC] opacity-60 cursor-not-allowed'
+                  : isDragging
+                  ? 'border-[#315D7D] bg-[#EAF1F6]'
+                  : 'border-[#CBD5E1] bg-[#F8FAFC] hover:border-[#315D7D] cursor-pointer'
+              }`}
+            >
+              <input
+                type="file"
+                accept=".dcm,.png,.jpg,.jpeg"
+                onChange={handleFileChange}
+                className="hidden"
+                id="xray-upload"
+                disabled={!patientId}
+              />
+              <label
+                htmlFor="xray-upload"
+                className={`flex flex-col items-center ${patientId ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+              >
+                <div className="w-10 h-10 rounded-lg bg-[#EAF1F6] text-[#315D7D] flex items-center justify-center text-lg mb-3">
+                  🫁
+                </div>
+                <span className="block text-sm font-semibold text-[#163B5C] mb-1">
+                  Click to browse or drop radiograph
+                </span>
+                <span className="block text-xs text-[#64748B] max-w-xs">
+                  Native 16-bit DICOM (.dcm) & standard PNG/JPEG formats supported
+                </span>
+              </label>
+            </div>
+
+            {/* Selected File Details */}
+            {file && (
+              <div className="mt-4 p-3 bg-[#EAF1F6] rounded-lg border border-[#D0DFEB] flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 overflow-hidden mr-2">
+                  <span className="px-1.5 py-0.5 rounded font-mono text-[10px] bg-white text-[#163B5C] border border-[#CBD5E1] uppercase font-semibold">
+                    {file.name.split('.').pop() || 'FILE'}
+                  </span>
+                  <span className="truncate text-[#163B5C] font-medium">{file.name}</span>
+                </div>
+                <span className="text-[#64748B] font-mono text-[11px] whitespace-nowrap">
+                  {(file.size / (1024 * 1024)).toFixed(2)} MB
+                </span>
               </div>
             )}
 
-            {result ? (
-              <div className="space-y-4">
-                <div className={`p-4 rounded-lg border ${
-                  result.confidence >= 0.40 
-                    ? 'bg-red-950/40 border-red-800/60 text-red-200' 
-                    : 'bg-emerald-950/40 border-emerald-800/60 text-emerald-200'
-                }`}>
-                  <span className="text-xs uppercase tracking-wider font-semibold opacity-75">Screening Status</span>
-                  <div className="text-xl font-bold mt-1">{result.prediction}</div>
+            {/* Submit Inference Button */}
+            <button
+              onClick={handleUpload}
+              disabled={!file || loading || !patientId}
+              className={`w-full mt-5 py-2.5 rounded-lg font-semibold text-sm transition-colors shadow-xs flex items-center justify-center gap-2 cursor-pointer ${
+                !file || loading || !patientId
+                  ? 'bg-[#E2E8F0] text-[#94A3B8] cursor-not-allowed border border-[#CBD5E1]'
+                  : 'text-white bg-[#315D7D] hover:bg-[#163B5C]'
+              }`}
+            >
+              {loading ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                  <span>Generating Grad-CAM & Running Inference...</span>
+                </>
+              ) : (
+                <span>Analyze Radiograph with AI</span>
+              )}
+            </button>
+
+            {error && (
+              <div className="mt-4 p-3 rounded-lg bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-xs flex items-start gap-2">
+                <span className="font-bold">⚠</span>
+                <span>{error}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column: Diagnostic Findings & Explainability (7 cols) */}
+        <div className="lg:col-span-7 clinical-card p-6 lg:p-8 flex flex-col justify-between min-h-[560px]">
+          <div>
+            <div className="flex items-center justify-between pb-4 border-b border-[#D9E2EA] mb-6">
+              <div>
+                <h2 className="text-lg font-bold text-[#163B5C] tracking-tight">Diagnostic Analysis</h2>
+                <p className="text-xs text-[#64748B]">DenseNet-121 Feature Extraction & Grad-CAM Spatial Localization</p>
+              </div>
+              {result && (
+                <span className="text-[10px] font-mono px-2 py-1 rounded bg-[#EAF1F6] border border-[#D0DFEB] text-[#163B5C]">
+                  EXAM: {result.examination_id.slice(0, 8)}
+                </span>
+              )}
+            </div>
+
+            {/* Imagery Comparison Container */}
+            {result?.gradcam ? (
+              <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Input Radiograph Frame */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-[10px] font-mono uppercase text-[#64748B]">
+                    <span>Input Radiograph</span>
+                    <span>Anatomical</span>
+                  </div>
+                  <div className="pacs-viewer-frame aspect-square flex items-center justify-center p-2">
+                    {previewUrl ? (
+                      <img src={previewUrl} alt="Original Radiograph" className="object-contain h-full w-full" />
+                    ) : (
+                      <div className="text-center p-4">
+                        <span className="block text-[#94A3B8] text-xs font-mono">16-bit DICOM File</span>
+                        <span className="text-[10px] text-[#64748B]">Windowed Min/Max RGB</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="p-4 bg-slate-800 rounded-lg border border-slate-700/80">
-                  <div className="flex justify-between text-xs text-slate-400 mb-1">
-                    <span>Model Confidence (Pneumonia Probability)</span>
-                    <span className="font-mono text-slate-200">{(result.confidence * 100).toFixed(1)}%</span>
+                {/* Grad-CAM Heatmap Frame */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-[10px] font-mono uppercase text-[#163B5C] font-semibold">
+                    <span>Grad-CAM Activation Map</span>
+                    <span className="text-[#3D8C87]">DenseBlock-4</span>
                   </div>
-                  <div className="w-full bg-slate-700 h-2 rounded-full overflow-hidden">
+                  <div className="pacs-viewer-frame aspect-square flex items-center justify-center p-2 border-[#315D7D]">
+                    <img src={result.gradcam} alt="Grad-CAM Spatial Heatmap" className="object-contain h-full w-full" />
+                  </div>
+                </div>
+              </div>
+            ) : previewUrl ? (
+              <div className="mb-6 space-y-1.5">
+                <span className="block text-[10px] font-mono uppercase text-[#64748B]">Scan Preview</span>
+                <div className="pacs-viewer-frame max-h-[260px] flex justify-center p-2">
+                  <img src={previewUrl} alt="X-Ray Preview" className="object-contain max-h-[240px]" />
+                </div>
+              </div>
+            ) : null}
+
+            {/* Diagnostic Probability & Metrics */}
+            {result ? (
+              <div className="space-y-5">
+                {/* Clinical Classification Banner */}
+                <div
+                  className={`p-5 rounded-lg border flex items-center justify-between ${
+                    isHighRisk
+                      ? 'bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]'
+                      : 'bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]'
+                  }`}
+                >
+                  <div>
+                    <span className="text-[10px] uppercase font-mono tracking-wider font-bold opacity-80 block">
+                      Screening Classification
+                    </span>
+                    <div className="text-xl sm:text-2xl font-bold tracking-tight mt-0.5">
+                      {result.prediction}
+                    </div>
+                  </div>
+                  <div
+                    className={`px-3 py-1.5 rounded-md font-mono font-bold text-xs border ${
+                      isHighRisk
+                        ? 'bg-[#FEE2E2] border-[#F87171] text-[#991B1B]'
+                        : 'bg-[#DCFCE7] border-[#4ADE80] text-[#166534]'
+                    }`}
+                  >
+                    {isHighRisk ? 'ATTENTION REQUIRED' : 'NORMAL / UNREMARKABLE'}
+                  </div>
+                </div>
+
+                {/* Model Confidence Meter with 0.40 Threshold Reference */}
+                <div className="p-4 bg-[#F8FAFC] rounded-lg border border-[#D9E2EA]">
+                  <div className="flex justify-between items-center text-xs mb-2">
+                    <span className="text-[#475569] font-medium">Model Probability (Pneumonia Confidence)</span>
+                    <span className="font-mono text-base font-bold text-[#163B5C]">
+                      {(result.confidence * 100).toFixed(1)}%
+                    </span>
+                  </div>
+
+                  {/* Visual Bar with Decision Marker */}
+                  <div className="relative w-full bg-[#E2E8F0] h-3 rounded-full overflow-hidden my-2.5">
                     <div
                       className={`h-full transition-all duration-500 ${
-                        result.confidence >= 0.40 ? 'bg-red-500' : 'bg-emerald-500'
+                        isHighRisk ? 'bg-[#DC2626]' : 'bg-[#16A34A]'
                       }`}
-                      style={{ width: `${result.confidence * 100}%` }}
+                      style={{ width: `${Math.min(result.confidence * 100, 100)}%` }}
+                    />
+                    {/* Decision Threshold Line at 40% */}
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-[#163B5C] z-10"
+                      style={{ left: '40%' }}
+                      title="Clinical Sensitivity Cutoff (40%)"
                     />
                   </div>
+
+                  <div className="flex justify-between items-center text-[10px] text-[#64748B] font-mono">
+                    <span>0% (Negative)</span>
+                    <span className="text-[#163B5C] font-semibold">▲ 40.0% Decision Threshold (Sensitivity Priority)</span>
+                    <span>100% (Positive)</span>
+                  </div>
+                </div>
+
+                {/* Post-Analysis Action Bar */}
+                <div className="pt-2 flex flex-wrap gap-3">
+                  <button
+                    onClick={handleDownloadReport}
+                    disabled={generatingPdf}
+                    className="px-4 py-2.5 rounded-lg font-medium text-xs bg-[#315D7D] hover:bg-[#163B5C] text-white shadow-xs transition flex items-center gap-2 cursor-pointer"
+                  >
+                    {generatingPdf ? (
+                      <>
+                        <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                        <span>Compiling PDF Report...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>📄 Download Clinical PDF Report</span>
+                      </>
+                    )}
+                  </button>
+
+                  {patientId && (
+                    <button
+                      onClick={() => navigate(`/patients/${patientId}`)}
+                      className="px-4 py-2.5 rounded-lg font-medium text-xs bg-white hover:bg-[#EAF1F6] text-[#163B5C] border border-[#D9E2EA] transition cursor-pointer"
+                    >
+                      👤 View Patient Record
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setFile(null);
+                      setPreviewUrl(null);
+                      setResult(null);
+                      setError(null);
+                    }}
+                    className="px-3.5 py-2.5 rounded-lg font-medium text-xs text-[#64748B] hover:text-[#163B5C] transition cursor-pointer"
+                  >
+                    Clear & Screen Another
+                  </button>
                 </div>
               </div>
             ) : (
-              <div className="h-40 border border-slate-800 rounded-lg flex items-center justify-center text-xs text-slate-500 text-center p-4">
-                Upload a chest X-ray image and click "Analyze Image" to view AI decision support metrics.
+              /* Awaiting Scan Empty State */
+              <div className="h-64 border border-dashed border-[#D9E2EA] rounded-lg flex flex-col items-center justify-center text-center p-6 bg-[#F8FAFC]">
+                <div className="w-10 h-10 rounded-full bg-[#EAF1F6] flex items-center justify-center text-[#315D7D] text-lg mb-3">
+                  🔬
+                </div>
+                <h4 className="text-sm font-semibold text-[#163B5C] mb-1">Awaiting Radiograph Analysis</h4>
+                <p className="text-xs text-[#64748B] max-w-sm">
+                  Select a patient and upload a chest X-ray (.dcm, .png, .jpg) to generate pneumonia probability metrics and spatial Grad-CAM heatmap.
+                </p>
               </div>
             )}
           </div>
 
-          <div className="mt-6 pt-4 border-t border-slate-800 text-[10px] text-slate-500 leading-relaxed">
-            <strong>Medical Disclaimer:</strong> This AI output is intended for research and screening support only. It is not a definitive medical diagnosis and must be interpreted by a qualified healthcare professional.
+          {/* Clinical Disclaimer */}
+          <div className="mt-8 pt-4 border-t border-[#D9E2EA] text-[11px] text-[#64748B] leading-relaxed">
+            <strong className="text-[#163B5C]">Clinical Protocol:</strong> This screening inference operates at a calibrated sensitivity cutoff of 0.40 to minimize False Negatives. Findings must be validated by a certified radiologist before diagnostic or therapeutic actions are taken.
           </div>
         </div>
-      </main>
-    </div>
+
+      </div>
+    </AppLayout>
   );
 };

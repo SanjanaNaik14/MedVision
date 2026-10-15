@@ -25,50 +25,65 @@ export default function SignUp() {
     try {
       setError('');
       setLoading(true);
-      // Register the user with Firebase
       await createUserWithEmailAndPassword(auth, email, password);
-      // Redirect to dashboard on success
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Failed to create an account.');
+      setError(err.message || 'Failed to create a clinical account.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4">
-      <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-8">
+    <div className="min-h-screen bg-[#F8FAFC] text-[#243447] flex flex-col justify-center items-center p-4">
+      <div className="w-full max-w-md clinical-card p-8 bg-white border border-[#D9E2EA] shadow-sm">
+        
+        {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-blue-500 tracking-tight mb-2">MedVision</h1>
-          <p className="text-slate-400 text-sm">Create a clinical account</p>
+          <Link to="/" className="inline-flex items-center gap-2.5 mb-3 group">
+            <div className="w-9 h-9 rounded-lg bg-[#163B5C] text-white flex items-center justify-center font-mono font-bold text-sm shadow-xs">
+              MV
+            </div>
+            <span className="font-bold text-xl tracking-tight text-[#163B5C]">
+              MedVision
+            </span>
+          </Link>
+          <h2 className="text-xl font-bold tracking-tight text-[#163B5C]">Create Clinical Account</h2>
+          <p className="text-[#64748B] text-xs mt-1">Register institutional credentials for X-ray screening</p>
         </div>
 
+        {/* Error Message */}
         {error && (
-          <div className="mb-4 p-3 bg-red-950/50 border border-red-800/50 text-red-300 text-sm rounded-lg text-center">
-            {error}
+          <div className="mb-5 p-3 rounded-lg bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-xs flex items-start gap-2">
+            <span className="font-bold">⚠</span>
+            <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Email Address</label>
+            <label className="block text-xs font-medium text-[#475569] mb-1.5 uppercase font-mono tracking-wider">
+              Institutional Email Address
+            </label>
             <input
               type="email"
               required
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
-              placeholder="doctor@clinic.com"
+              className="w-full bg-white border border-[#D9E2EA] rounded-lg px-3.5 py-2.5 text-sm text-[#243447] placeholder-[#94A3B8] focus:border-[#315D7D] focus:ring-1 focus:ring-[#315D7D] outline-none transition"
+              placeholder="clinician@hospital.org"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Password</label>
+            <label className="block text-xs font-medium text-[#475569] mb-1.5 uppercase font-mono tracking-wider">
+              Password (min. 6 characters)
+            </label>
             <input
               type="password"
               required
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
+              className="w-full bg-white border border-[#D9E2EA] rounded-lg px-3.5 py-2.5 text-sm text-[#243447] placeholder-[#94A3B8] focus:border-[#315D7D] focus:ring-1 focus:ring-[#315D7D] outline-none transition"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -76,11 +91,13 @@ export default function SignUp() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">Confirm Password</label>
+            <label className="block text-xs font-medium text-[#475569] mb-1.5 uppercase font-mono tracking-wider">
+              Confirm Password
+            </label>
             <input
               type="password"
               required
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
+              className="w-full bg-white border border-[#D9E2EA] rounded-lg px-3.5 py-2.5 text-sm text-[#243447] placeholder-[#94A3B8] focus:border-[#315D7D] focus:ring-1 focus:ring-[#315D7D] outline-none transition"
               placeholder="••••••••"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
@@ -90,21 +107,36 @@ export default function SignUp() {
           <button
             type="submit"
             disabled={loading}
-            className={`w-full py-3 rounded-lg font-medium transition ${
-              loading 
-                ? 'bg-slate-700 text-slate-500 cursor-not-allowed' 
-                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+            className={`w-full mt-2 py-2.5 rounded-lg font-semibold text-sm transition-colors shadow-xs flex items-center justify-center gap-2 cursor-pointer ${
+              loading
+                ? 'bg-[#E2E8F0] text-[#94A3B8] cursor-not-allowed border border-[#CBD5E1]'
+                : 'text-white bg-[#315D7D] hover:bg-[#163B5C]'
             }`}
           >
-            {loading ? 'Creating Account...' : 'Sign Up'}
+            {loading ? (
+              <>
+                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+                <span>Registering Account...</span>
+              </>
+            ) : (
+              <span>Complete Registration</span>
+            )}
           </button>
         </form>
 
-        <div className="mt-6 text-center text-sm text-slate-400">
-          Already have an account?{' '}
-          <Link to="/login" className="text-blue-400 hover:text-blue-300 font-medium transition">
-            Sign In
-          </Link>
+        {/* Footer Links */}
+        <div className="mt-6 pt-5 border-t border-[#D9E2EA] flex flex-col gap-2.5 text-center text-xs text-[#64748B]">
+          <div>
+            Already have an account?{' '}
+            <Link to="/login" className="text-[#315D7D] hover:text-[#163B5C] font-semibold transition">
+              Sign In
+            </Link>
+          </div>
+          <div>
+            <Link to="/" className="text-[#94A3B8] hover:text-[#475569] transition font-mono text-[11px]">
+              ← Back to Overview
+            </Link>
+          </div>
         </div>
       </div>
     </div>

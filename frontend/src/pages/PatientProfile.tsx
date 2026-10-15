@@ -4,6 +4,7 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { db } from '../services/firebase';
 import type { Patient } from '../services/patientService';
 import { generatePdfReport } from '../utils/generatePdfReport';
+import { AppLayout } from '../components/AppLayout';
 
 interface ExaminationRecord {
   id: string;
@@ -17,7 +18,7 @@ interface ExaminationRecord {
 export const PatientProfile: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  
+
   const [patient, setPatient] = useState<Patient | null>(null);
   const [examinations, setExaminations] = useState<ExaminationRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,24 +31,21 @@ export const PatientProfile: React.FC = () => {
       try {
         const docRef = doc(db, 'patients', id);
         const docSnap = await getDoc(docRef);
-        
+
         if (docSnap.exists()) {
           setPatient({ id: docSnap.id, ...docSnap.data() } as Patient);
         } else {
-          setError('Patient record not found.');
+          setError('Patient record not found in database.');
           setLoading(false);
           return;
         }
 
         const examsRef = collection(db, 'examinations');
-        const q = query(
-          examsRef, 
-          where("patientId", "==", id)
-        );
-        
+        const q = query(examsRef, where('patientId', '==', id));
+
         const examSnap = await getDocs(q);
         const examList: ExaminationRecord[] = [];
-        
+
         examSnap.forEach((examDoc) => {
           examList.push({ id: examDoc.id, ...examDoc.data() } as ExaminationRecord);
         });
@@ -59,7 +57,6 @@ export const PatientProfile: React.FC = () => {
         });
 
         setExaminations(examList);
-
       } catch (err) {
         console.error('Error fetching patient data:', err);
         setError('Failed to load patient profile.');
@@ -76,120 +73,261 @@ export const PatientProfile: React.FC = () => {
     setDownloadingId(exam.id);
     try {
       await generatePdfReport(patient, exam);
+    } catch (err) {
+      console.error('Failed to generate PDF:', err);
     } finally {
       setDownloadingId(null);
     }
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-slate-900 text-slate-300 flex items-center justify-center text-sm">Loading patient profile...</div>;
+    return (
+      <AppLayout breadcrumbs={[{ label: 'Clinical Workspace' }, { label: 'Patient Directory', href: '/patients' }, { label: 'Loading...' }]}>
+        <div className="py-24 text-center text-[#64748B] text-xs flex flex-col items-center justify-center gap-3">
+          <span className="w-5 h-5 border-2 border-[#315D7D] border-t-transparent rounded-full animate-spin"></span>
+          <span>Retrieving patient medical record and examination history...</span>
+        </div>
+      </AppLayout>
+    );
   }
 
   if (error || !patient) {
     return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 p-8 flex flex-col items-center justify-center">
-        <div className="p-4 bg-red-950/50 border border-red-800/50 text-red-300 text-sm rounded-lg mb-4">{error}</div>
-        <button onClick={() => navigate('/patients')} className="px-4 py-2 bg-slate-800 text-slate-200 text-sm rounded-lg">Back to Patient List</button>
-      </div>
+      <AppLayout breadcrumbs={[{ label: 'Clinical Workspace' }, { label: 'Patient Directory', href: '/patients' }, { label: 'Not Found' }]}>
+        <div className="max-w-md mx-auto py-16 text-center space-y-4">
+          <div className="p-4 bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-xs rounded-lg">
+            {error || 'Patient not found.'}
+          </div>
+          <button
+            onClick={() => navigate('/patients')}
+            className="px-4 py-2 bg-[#EAF1F6] hover:bg-[#D0DFEB] text-[#163B5C] text-xs rounded-lg transition"
+          >
+            ← Return to Patient Directory
+          </button>
+        </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 p-8">
-      <header className="max-w-5xl mx-auto flex justify-between items-center pb-8 border-b border-slate-800">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-blue-400">{patient.name}</h1>
-          <p className="text-xs text-slate-400 font-mono">Code: {patient.patientCode} | ID: {patient.patientId}</p>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={() => navigate('/patients')} className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition">
-            Back to Patients
-          </button>
-          <button onClick={() => navigate(`/dashboard?patientId=${patient.id}`)} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg shadow-lg shadow-blue-500/20 transition">
-            + New X-Ray Scan
-          </button>
-        </div>
-      </header>
+    <AppLayout
+      breadcrumbs={[
+        { label: 'Clinical Workspace' },
+        { label: 'Patient Directory', href: '/patients' },
+        { label: patient.name },
+      ]}
+    >
+      <div className="space-y-8">
+        
+        {/* Top Header Card */}
+        <div className="clinical-card p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#163B5C]">
+                {patient.name}
+              </h1>
+              <span className="px-2.5 py-0.5 rounded bg-[#EAF1F6] border border-[#D0DFEB] text-[#163B5C] font-mono text-xs font-semibold">
+                {patient.patientCode}
+              </span>
+            </div>
+            <p className="text-xs text-[#64748B] font-mono mt-1.5 flex items-center gap-2">
+              <span>System ID: {patient.patientId}</span>
+              <span>•</span>
+              <span>
+                Registered:{' '}
+                {patient.createdAt && 'toDate' in patient.createdAt
+                  ? patient.createdAt.toDate().toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })
+                  : 'Recent'}
+              </span>
+            </p>
+          </div>
 
-      <main className="max-w-5xl mx-auto mt-8 grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* Left Column: Demographics */}
-        <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700/50 space-y-4 h-fit">
-          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider border-b border-slate-700/50 pb-2">Patient Details</h2>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(`/dashboard?patientId=${patient.id}`)}
+              className="px-5 py-2 rounded-lg font-semibold text-xs text-white bg-[#315D7D] hover:bg-[#163B5C] shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>+ New X-Ray Screening</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
-          <div>
-            <span className="block text-xs text-slate-400">Age / Sex</span>
-            <span className="text-sm font-medium text-slate-200">{patient.age} Yrs / {patient.sex}</span>
-          </div>
+          {/* Left Column: Demographics & Clinical Information (4 cols) */}
+          <div className="lg:col-span-4 clinical-card p-6 space-y-6">
+            <h2 className="text-xs font-mono uppercase tracking-wider text-[#163B5C] font-bold border-b border-[#D9E2EA] pb-3 flex items-center gap-1.5">
+              <span>Demographic & Clinical Profile</span>
+            </h2>
 
-          <div>
-            <span className="block text-xs text-slate-400">Blood Group</span>
-            <span className="text-sm font-medium text-slate-200">{patient.bloodGroup || 'Not specified'}</span>
-          </div>
+            <div className="space-y-4 text-xs">
+              <div>
+                <span className="block text-[10px] font-mono uppercase text-[#64748B] mb-0.5">
+                  Age / Biological Sex
+                </span>
+                <span className="text-sm font-medium text-[#243447]">
+                  {patient.age} Years • {patient.sex}
+                </span>
+              </div>
 
-          <div>
-            <span className="block text-xs text-slate-400">Allergies</span>
-            <span className="text-sm font-medium text-slate-200">{patient.allergies || 'None reported'}</span>
-          </div>
+              <div>
+                <span className="block text-[10px] font-mono uppercase text-[#64748B] mb-0.5">
+                  Blood Group
+                </span>
+                <span className="text-sm font-semibold text-[#3D8C87] font-mono">
+                  {patient.bloodGroup || 'Not documented'}
+                </span>
+              </div>
 
-          <div>
-            <span className="block text-xs text-slate-400">Known Conditions</span>
-            <span className="text-sm font-medium text-slate-200">{patient.knownConditions || 'None reported'}</span>
-          </div>
-        </div>
-
-        {/* Right Column: Examination History */}
-        <div className="md:col-span-2 bg-slate-800/50 p-6 rounded-xl border border-slate-700/50">
-          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider border-b border-slate-700/50 pb-2 mb-4">Past Examinations</h2>
-          
-          {examinations.length > 0 ? (
-            <div className="space-y-4">
-              {examinations.map((exam) => (
-                <div key={exam.id} className="p-4 bg-slate-900 border border-slate-700 rounded-lg flex flex-col md:flex-row gap-6 items-center">
-                  {/* Thumbnail */}
-                  <div className="w-full md:w-32 h-32 bg-black rounded-md overflow-hidden border border-slate-700 flex-shrink-0 flex items-center justify-center">
-                    {exam.gradcam ? (
-                      <img src={exam.gradcam} alt="Grad-CAM thumbnail" className="object-cover h-full w-full opacity-90 hover:opacity-100 transition" />
-                    ) : (
-                      <span className="text-xs text-slate-600">No Image</span>
-                    )}
-                  </div>
-                  
-                  {/* Details */}
-                  <div className="flex-1 flex flex-col justify-center">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className={`px-2 py-1 text-[10px] uppercase tracking-wider font-bold rounded ${
-                        exam.confidence >= 0.40 ? 'bg-red-900/50 text-red-300 border border-red-700/50' : 'bg-emerald-900/50 text-emerald-300 border border-emerald-700/50'
-                      }`}>
-                        {exam.prediction}
-                      </span>
-                      <span className="text-xs text-slate-500">
-                        {exam.createdAt?.toDate ? exam.createdAt.toDate().toLocaleDateString() : 'Recent'}
-                      </span>
-                    </div>
-                    
-                    <p className="text-sm text-slate-300 mb-1">
-                      Model Confidence: <strong className="text-slate-100">{(exam.confidence * 100).toFixed(1)}%</strong>
-                    </p>
-                    <p className="text-xs text-slate-500 font-mono truncate">File: {exam.filename}</p>
-                    
-                    <button
-                      onClick={() => handleDownloadReport(exam)}
-                      disabled={downloadingId === exam.id}
-                      className="mt-3 w-fit px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-blue-400 hover:text-blue-300 text-xs font-medium rounded border border-slate-700 transition flex items-center gap-1.5"
-                    >
-                      {downloadingId === exam.id ? 'Generating PDF...' : '📄 Download PDF Report'}
-                    </button>
-                  </div>
+              <div>
+                <span className="block text-[10px] font-mono uppercase text-[#64748B] mb-0.5">
+                  Known Allergies
+                </span>
+                <div className="mt-1">
+                  {patient.allergies && patient.allergies.toLowerCase() !== 'none' ? (
+                    <span className="inline-block px-2.5 py-1 rounded bg-[#FEF3C7] border border-[#FDE68A] text-[#92400E] text-xs font-medium">
+                      ⚠ {patient.allergies}
+                    </span>
+                  ) : (
+                    <span className="text-[#64748B]">None reported</span>
+                  )}
                 </div>
-              ))}
+              </div>
+
+              <div>
+                <span className="block text-[10px] font-mono uppercase text-[#64748B] mb-0.5">
+                  Pre-Existing Conditions
+                </span>
+                <p className="text-[#475569] text-xs leading-relaxed mt-1 bg-[#F8FAFC] p-3 rounded-lg border border-[#D9E2EA]">
+                  {patient.knownConditions || 'No prior chronic respiratory conditions noted.'}
+                </p>
+              </div>
             </div>
-          ) : (
-            <div className="h-48 border border-dashed border-slate-700 rounded-lg flex items-center justify-center text-xs text-slate-500">
-              No examination records saved for this patient yet.
+
+            <div className="pt-4 border-t border-[#D9E2EA] text-[11px] text-[#94A3B8] font-mono">
+              Attending Clinician UID: {patient.doctorId ? patient.doctorId.slice(0, 10) + '...' : 'System'}
             </div>
-          )}
+          </div>
+
+          {/* Right Column: Longitudinal Examination Timeline (8 cols) */}
+          <div className="lg:col-span-8 clinical-card p-6 lg:p-8">
+            <div className="flex items-center justify-between border-b border-[#D9E2EA] pb-4 mb-6">
+              <div>
+                <h2 className="text-base font-bold text-[#163B5C] tracking-tight">Examination History</h2>
+                <p className="text-xs text-[#64748B]">Chronological screening timeline and Grad-CAM archives</p>
+              </div>
+              <span className="text-xs font-mono font-medium px-2 py-0.5 rounded bg-[#EAF1F6] text-[#163B5C] border border-[#D0DFEB]">
+                {examinations.length} Scans Archived
+              </span>
+            </div>
+
+            {examinations.length > 0 ? (
+              <div className="space-y-4">
+                {examinations.map((exam) => {
+                  const isHigh = exam.confidence >= 0.40;
+                  return (
+                    <div
+                      key={exam.id}
+                      className="p-5 bg-[#F8FAFC] border border-[#D9E2EA] hover:border-[#CBD5E1] rounded-lg transition-colors flex flex-col sm:flex-row gap-5 items-start sm:items-center justify-between"
+                    >
+                      {/* Thumbnail Container */}
+                      <div className="w-full sm:w-28 h-28 pacs-viewer-frame flex-shrink-0 flex items-center justify-center p-1">
+                        {exam.gradcam ? (
+                          <img
+                            src={exam.gradcam}
+                            alt="Grad-CAM Activation"
+                            className="object-contain h-full w-full"
+                          />
+                        ) : (
+                          <span className="text-[10px] font-mono text-[#64748B]">No Overlay</span>
+                        )}
+                      </div>
+
+                      {/* Diagnostic Summary */}
+                      <div className="flex-1 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span
+                            className={`px-2.5 py-0.5 text-[10px] uppercase font-mono font-bold tracking-wider rounded border ${
+                              isHigh
+                                ? 'bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]'
+                                : 'bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]'
+                            }`}
+                          >
+                            {exam.prediction}
+                          </span>
+
+                          <span className="text-[11px] font-mono text-[#64748B]">
+                            {exam.createdAt?.toDate
+                              ? exam.createdAt.toDate().toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : 'Recent'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3 text-xs">
+                          <span className="text-[#475569]">
+                            Confidence:{' '}
+                            <strong className="text-[#163B5C] font-mono">
+                              {(exam.confidence * 100).toFixed(1)}%
+                            </strong>
+                          </span>
+                          <span className="text-[#CBD5E1]">•</span>
+                          <span className="text-[#64748B] font-mono text-[11px] truncate max-w-xs">
+                            File: {exam.filename}
+                          </span>
+                        </div>
+
+                        <div className="pt-1">
+                          <button
+                            onClick={() => handleDownloadReport(exam)}
+                            disabled={downloadingId === exam.id}
+                            className="px-3.5 py-1.5 rounded-lg bg-white hover:bg-[#EAF1F6] text-[#163B5C] border border-[#D9E2EA] text-xs font-medium transition-colors flex items-center gap-2 cursor-pointer shadow-xs"
+                          >
+                            {downloadingId === exam.id ? (
+                              <>
+                                <span className="w-3 h-3 border-2 border-[#315D7D] border-t-transparent rounded-full animate-spin"></span>
+                                <span>Generating PDF...</span>
+                              </>
+                            ) : (
+                              <span>📄 Download PDF Report</span>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-16 border border-dashed border-[#D9E2EA] rounded-lg flex flex-col items-center justify-center text-center p-6 bg-[#F8FAFC]">
+                <div className="w-10 h-10 rounded-full bg-[#EAF1F6] flex items-center justify-center text-[#315D7D] text-lg mb-3">
+                  🫁
+                </div>
+                <h4 className="text-sm font-semibold text-[#163B5C] mb-1">No Examinations Recorded Yet</h4>
+                <p className="text-xs text-[#64748B] max-w-sm mb-4">
+                  This patient profile currently has no archived chest X-ray scans.
+                </p>
+                <button
+                  onClick={() => navigate(`/dashboard?patientId=${patient.id}`)}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-[#315D7D] hover:bg-[#163B5C] transition shadow-xs"
+                >
+                  + Perform First Radiograph Scan
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </AppLayout>
   );
 };

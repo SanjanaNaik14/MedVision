@@ -1,172 +1,169 @@
-# MedVision — AI-Assisted Chest X-Ray Screening
+# MedVision — AI-Assisted Chest X-Ray Screening & Clinical Decision Support
 
-MedVision is a web-based clinical decision support prototype designed to assist healthcare professionals by screening chest X-ray images for potential abnormalities (e.g., pneumonia).
+MedVision is an end-to-end, web-based clinical decision support system (CDSS) designed to assist healthcare professionals by screening chest X-ray images for potential abnormalities (specifically pneumonia opacities) paired with real-time spatial Grad-CAM explainability.
 
-> **Medical & Regulatory Disclaimer**: MedVision is strictly an educational tool and decision-support prototype. It is **not** a diagnostic device and must not be used as a substitute for professional medical advice, diagnosis, or treatment.
+> **Medical & Regulatory Disclaimer**: MedVision is strictly an educational tool and clinical decision-support prototype. It is **not** an FDA/CE cleared diagnostic device and must not be used as a substitute for professional medical advice, diagnosis, or radiologist assessment.
 
 ---
 
 ## Architecture Overview
 
-MedVision is structured into three isolated, decoupled components:
-[ Frontend: React + TS + Tailwind ]
-|
-+---> [ Auth / Persistence: Firebase ]
-|
-[ Backend: FastAPI (Inference) ] <---> [ ML Engine: PyTorch / DenseNet121 ]
+MedVision is structured into decoupled components:
 
-
-- **Frontend**: Built with React, TypeScript, Tailwind CSS, and React Router. Managed via Vite.
-- **Authentication & Storage**: Secured via Firebase Auth (Email/Password) with environment-isolated configurations.
-- **Backend**: FastAPI serving lightweight REST API endpoints for model inference.
-- **ML Pipeline**: PyTorch-based Deep Learning pipeline (DenseNet121 backbone) trained on patient-split RSNA Pneumonia Detection Challenge data.
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                      FRONTEND (Vite + React 19 + TS)                   │
+│  - Tailwind CSS v4, React Router v7                                    │
+│  - Cinematic Landing Page (3D Anatomical Lungs, Deep Blue Frame)       │
+│  - Clinical Workspace Shell (AppLayout + Unified Navbar)              │
+│  - Direct Firestore SDK (Patients CRUD, Examination Timeline)          │
+│  - Client-side Clinical PDF Engine (jspdf + html2canvas)               │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                  Multipart/Form-Data (Image + Patient ID)
+                  Bearer Token (Authorization Header)
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                       BACKEND (FastAPI + Python)                       │
+│  - Uvicorn ASGI Server on http://127.0.0.1:8000                        │
+│  - Image Pipeline: pydicom (16-bit DICOM) & PIL (PNG/JPEG)            │
+│  - PyTorch Inference Engine (DenseNet121, MPS / CPU)                   │
+│  - Explainability: Grad-CAM Hook on DenseBlock4 Denselayer16          │
+│  - Firebase Admin SDK: Direct Firestore Exam Persistence               │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        DATA & PERSISTENCE                              │
+│  - Firebase Authentication (Clinician Email/Password)                  │
+│  - Cloud Firestore:                                                   │
+│      ├── `/patients/{patientId}` (Demographics, Doctor UID)           │
+│      └── `/examinations/{examId}` (Prediction, Confidence, Base64 CAM) │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Project Structure
+## 🚀 Key Features
+
+1. **Cinematic & Clinical UI Redesign**:
+   - High-contrast, deep-blue gradient landing page with subtle cyber-grid, rounded double-border frame, oversized typography, 3D anatomical lungs hero illustration, and restrained lime accents.
+   - Clean, professional, and functional diagnostic workspace that presents AI inference metrics and Grad-CAM overlays clearly without distracting effects.
+   - Unified persistent navigation (`AppLayout` & `Navbar`) linking the screening workspace, patient directory, and intake flows.
+
+2. **Hospital-Ready Image Processing**:
+   - Parses raw 16-bit DICOM files (`.dcm`) with min-max windowing normalization as well as standard PNG/JPEG fallbacks.
+
+3. **High-Sensitivity Deep Learning**:
+   - Fine-tuned **DenseNet121** convolutional neural network with BCE loss weighted ($3.0\times$) to penalize dangerous False Negatives in clinical settings.
+   - Optimized decision threshold at **0.40** prioritizing sensitivity/recall.
+
+4. **Grad-CAM Visual Explainability**:
+   - Generates instant gradient-weighted class activation heatmaps hooked into DenseNet121's `denseblock4.denselayer16`, visually demonstrating the spatial regions driving model probability.
+
+5. **Patient Directory & Longitudinal History**:
+   - Complete patient lifecycle management with Firestore indexing, search filtering, and past scan timelines.
+
+6. **One-Click Clinical PDF Diagnostic Reports**:
+   - Instant PDF generation compiling patient demographics, AI findings, Grad-CAM overlays, and clinician signature blocks.
+
+---
+
+## 🛠️ Technology Stack
+
+- **Machine Learning**: PyTorch, Torchvision, Scikit-learn, Pandas, NumPy, Pydicom, OpenCV (`cv2`)
+- **Backend API**: FastAPI, Uvicorn, Python Multipart, Firebase Admin SDK
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, React Router DOM v7, jsPDF, html2canvas
+- **Authentication & Database**: Firebase Auth, Cloud Firestore
+
+---
+
+## 📊 Model Performance Metrics (RSNA Test Set)
+
+- **ROC-AUC Score**: 0.8940
+- **Accuracy**: 83.28%
+- **Recall (Sensitivity)**: 74.07%
+- **Precision**: 73.39%
+- **Decision Cutoff**: 0.40
+
+---
+
+## 📂 Project Structure
 
 ```text
 MedVision/
-├── backend/            # FastAPI REST API & model inference code
+├── backend/
 │   ├── app/
-│   ├── requirements.txt
-│   └── venv/
-├── frontend/           # React + TypeScript + Tailwind CSS UI
+│   │   ├── main.py                    # FastAPI server: /predict endpoint, Grad-CAM & Firestore persistence
+│   │   └── models/
+│   │       └── densenet121_pneumonia.pth  # Production PyTorch weights (~28.4 MB)
+│   ├── firebase-credentials.json      # Firebase Admin service account key
+│   └── requirements.txt
+│
+├── frontend/
 │   ├── src/
-│   │   ├── context/    # React Context (AuthContext)
-│   │   ├── pages/      # Views (Login, Dashboard)
-│   │   └── services/   # External integrations (Firebase)
-│   ├── .env            # Private environment configuration
+│   │   ├── assets/
+│   │   │   └── anatomical_lungs_clinical.jpg # 3D anatomical lungs visual asset
+│   │   ├── components/
+│   │   │   ├── AppLayout.tsx          # Shared workspace layout & disclaimer banner
+│   │   │   ├── Navbar.tsx             # Brand header, navigation links & session info
+│   │   │   └── ProtectedRoute.tsx     # Firebase session route guard
+│   │   ├── context/
+│   │   │   └── AuthContext.tsx        # Firebase Auth context provider
+│   │   ├── pages/
+│   │   │   ├── Landing.tsx            # Cinematic landing page
+│   │   │   ├── Login.tsx              # Dark-themed clinician portal
+│   │   │   ├── SignUp.tsx             # Clinical account registration
+│   │   │   ├── Dashboard.tsx          # Diagnostic screening & Grad-CAM workspace
+│   │   │   ├── PatientList.tsx        # Searchable patient directory
+│   │   │   ├── AddPatient.tsx         # New patient registration form
+│   │   │   └── PatientProfile.tsx     # Demographics, scan history & PDF export
+│   │   ├── services/
+│   │   │   ├── firebase.ts            # Client Firebase initialization
+│   │   │   └── patientService.ts      # Firestore patient data helpers
+│   │   └── utils/
+│   │       └── generatePdfReport.ts   # Client-side PDF export utility
+│   ├── index.html                     # HTML entry with Plus Jakarta Sans & Inter
 │   └── package.json
-├── ml/                 # PyTorch model training & dataset pipelines
-│   ├── data/
-│   │   ├── raw/        # RSNA dataset storage
-│   │   └── processed/  # Leak-free patient-split subsets
-│   ├── requirements.txt
-│   └── venv/
+│
+├── ml/
+│   ├── data/                          # RSNA dataset splits
+│   ├── src/
+│   │   ├── dataset.py                 # PyTorch Dataset for DICOM loading
+│   │   ├── train.py                   # Model training script
+│   │   └── evaluate.py                # Model evaluation metrics
+│   └── make_subset.py                 # Patient-level stratified split script
+│
+├── docs/
+│   └── HANDOFF.md                     # Technical architecture & UI redesign handoff notes
 └── README.md
+```
 
-Setup & Running Locally
-1. Frontend
+---
 
-cd frontend
-npm install
-npm run dev
+## ⚙️ How to Run Locally
 
-2. Backend
-Bash
+### 1. Backend (FastAPI)
+```bash
 cd backend
 source venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
+```
+Runs at: `http://127.0.0.1:8000`
 
-
-3. Machine Learning Environment
-Bash
-cd ml
-source venv/bin/activate
-pip install -r requirements.txt
-
-Dataset & Machine Learning Strategy
-
-Dataset: https://www.kaggle.com/c/rsna-pneumonia-detection-challenge
-
-Leakage Prevention: To prevent data leakage, dataset splits (Train/Validation/Test) are strictly partitioned at the Patient ID level rather than image level
-
-
-
-
-LAST UPDATE: 8 oct 10:19 pm
-MedVision is an end-to-end, full-stack artificial intelligence application designed to assist in screening chest X-rays for pneumonia. It bridges the gap between raw data science and production engineering by integrating a PyTorch deep learning model with a FastAPI backend and a React dashboard.
-
-🚀 Key Features
-
-Medical Image Processing: Natively parses raw 16-bit DICOM files (standard hospital format) as well as standard JPEG/PNG fallbacks.
-
-AI Diagnostic Inference: Utilizes a custom-trained DenseNet121 convolutional neural network to predict the probability of pneumonia opacities.
-
-Clinical Prioritization: Employs a weighted loss function and optimized decision thresholds to prioritize Recall (Sensitivity), minimizing dangerous False Negatives in a clinical setting.
-
-Secure Dashboard: Features Firebase authentication and a minimalist, responsive React/Tailwind UI to deliver AI decision-support metrics clearly.
-
-🛠️ Technology Stack
-
-Machine Learning: PyTorch, Torchvision, Scikit-learn, Pandas, NumPy
-
-Backend API: FastAPI, Uvicorn, Python, Pydicom (for DICOM parsing)
-
-Frontend: React (TypeScript), Vite, Tailwind CSS, React Router
-
-Authentication: Firebase Auth
-
-🧠 Model Architecture & Training
-
-Base Model: DenseNet121 (pretrained on ImageNet, fine-tuned for binary classification).
-
-Dataset: Subset of the Kaggle RSNA Pneumonia Detection Challenge dataset (strictly partitioned to prevent data leakage).
-
-Loss Function: BCEWithLogitsLoss with a pos_weight of 3.0 to heavily penalize the model for missing positive pneumonia cases.
-
-Decision Threshold: Adjusted to 0.40 to maximize clinical sensitivity while mitigating the effects of domain shift (e.g., 8-bit JPEG compression loss).
-
-Performance Metrics (Unseen Test Set)
-
-ROC-AUC Score: 0.8940
-
-Accuracy: 83.28%
-
-Recall (Sensitivity): 74.07%
-
-Precision: 73.39%
-
-📂 Project Structure
-
-MedVision/
-│
-├── ml/                     # Machine Learning Pipeline
-│   ├── data/               # Raw and processed DICOMs/CSVs
-│   ├── models/             # Saved PyTorch weights (.pth)
-│   └── src/                # Training, evaluation, and dataset scripts
-│
-├── backend/                # FastAPI Server
-│   ├── app/                
-│   │   ├── main.py         # API endpoints and inference logic
-│   │   └── models/         # Copied model weights for production
-│   └── venv/               # Backend Python environment
-│
-└── frontend/               # React Dashboard
-    ├── src/
-    │   ├── components/     # UI components
-    │   ├── context/        # Firebase AuthContext
-    │   └── pages/          # Login and Dashboard pages
-    └── package.json
-
-
-⚙️ How to Run Locally
-
-1. Start the Backend (FastAPI)
-
-Open a terminal, navigate to the backend directory, activate the virtual environment, and start the server:
-
-cd MedVision/backend
-source venv/bin/activate
-uvicorn app.main:app --reload
-
-
-The API will run on http://127.0.0.1:8000
-
-2. Start the Frontend (React/Vite)
-
-Open a separate terminal, navigate to the frontend directory, and start the Vite development server:
-
-cd MedVision/frontend
+### 2. Frontend (React + Vite)
+```bash
+cd frontend
+npm install
 npm run dev
+```
+Runs at: `http://localhost:5173` (or `http://localhost:5174`)
 
+---
 
-The dashboard will be available at http://localhost:5173
-
-🔮 Future Roadmap
-
-Visual Explainability: Implement Grad-CAM to generate thermal heatmaps on X-rays, highlighting the exact regions the model used to make its prediction.
-
-Cloud Deployment: Containerize the application using Docker and deploy to AWS/GCP for public access.
+## 🔮 Future Roadmap
+- Containerize application with Docker for orchestrated GCP/AWS cloud deployment.
+- Integrate multi-label classification (e.g., Atelectasis, Cardiomegaly, Effusion, Infiltration).
+- Implement backend JWT token validation (`auth.verify_id_token()`).

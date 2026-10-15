@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getPatientsByDoctor, type Patient } from '../services/patientService';
+import { AppLayout } from '../components/AppLayout';
 
 export const PatientList: React.FC = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
-  
+
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -19,7 +20,7 @@ export const PatientList: React.FC = () => {
         const data = await getPatientsByDoctor(currentUser.uid);
         setPatients(data);
       } catch (err) {
-        setError('Failed to load patients.');
+        setError('Failed to load clinical patient directory.');
         console.error(err);
       } finally {
         setLoading(false);
@@ -29,89 +30,196 @@ export const PatientList: React.FC = () => {
     fetchPatients();
   }, [currentUser]);
 
-  // Filter patients based on search input (name or code)
-  const filteredPatients = patients.filter(p => 
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    p.patientCode.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter patients based on search input (name, code, or ID)
+  const filteredPatients = patients.filter((p) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      p.name.toLowerCase().includes(query) ||
+      p.patientCode.toLowerCase().includes(query) ||
+      (p.patientId && p.patientId.toLowerCase().includes(query))
+    );
+  });
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 p-8">
-      <header className="max-w-5xl mx-auto flex justify-between items-center pb-8 border-b border-slate-800">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-blue-400">Patients</h1>
-          <p className="text-xs text-slate-400">Manage and view your registered patients.</p>
-        </div>
-        <div className="flex gap-4">
-          <button onClick={() => navigate('/dashboard')} className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition">
-            Back to Dashboard
-          </button>
-          <button onClick={() => navigate('/add-patient')} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg shadow-lg shadow-blue-500/20 transition">
-            + Add Patient
-          </button>
-        </div>
-      </header>
+    <AppLayout breadcrumbs={[{ label: 'Clinical Workspace' }, { label: 'Patient Directory' }]}>
+      <div className="space-y-6">
+        
+        {/* Header with Title and Primary Actions */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-[#D9E2EA]">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-[#163B5C] flex items-center gap-2.5">
+              <span>Patient Directory</span>
+              <span className="text-xs font-mono font-medium px-2 py-0.5 rounded bg-[#EAF1F6] text-[#163B5C] border border-[#D0DFEB]">
+                {patients.length} Active Records
+              </span>
+            </h1>
+            <p className="text-xs text-[#64748B] mt-1">
+              Select a patient record to view examination timeline, medical history, or run a new chest radiograph.
+            </p>
+          </div>
 
-      <main className="max-w-5xl mx-auto mt-8">
-        {/* Search Bar */}
-        <div className="mb-6">
-          <input 
-            type="text" 
-            placeholder="Search by patient name or code..." 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full md:w-1/2 bg-slate-800/50 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
-          />
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/add-patient')}
+              className="px-4 py-2 rounded-lg font-semibold text-xs text-white bg-[#315D7D] hover:bg-[#163B5C] shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>+ Register Patient</span>
+            </button>
+          </div>
         </div>
 
-        {error && <div className="p-4 bg-red-950/50 border border-red-800/50 text-red-300 text-sm rounded-lg mb-6">{error}</div>}
+        {/* Search & Filter Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="relative w-full sm:w-96">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#94A3B8] text-xs">
+              🔍
+            </span>
+            <input
+              type="text"
+              placeholder="Search by name, hospital code, or PAT ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-white border border-[#D9E2EA] rounded-lg pl-9 pr-8 py-2 text-xs text-[#243447] placeholder-[#94A3B8] focus:border-[#315D7D] focus:ring-1 focus:ring-[#315D7D] outline-none transition"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#475569] text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
 
+          <div className="text-xs text-[#64748B] font-mono self-end sm:self-center">
+            Showing <strong className="text-[#163B5C]">{filteredPatients.length}</strong> of {patients.length} records
+          </div>
+        </div>
+
+        {error && (
+          <div className="p-4 rounded-lg bg-[#FEF2F2] border border-[#FECACA] text-[#991B1B] text-xs">
+            {error}
+          </div>
+        )}
+
+        {/* Table Content */}
         {loading ? (
-          <div className="text-center py-12 text-slate-400 text-sm">Loading patients...</div>
+          <div className="py-20 text-center text-[#64748B] text-xs flex flex-col items-center justify-center gap-3">
+            <span className="w-5 h-5 border-2 border-[#315D7D] border-t-transparent rounded-full animate-spin"></span>
+            <span>Querying patient records from Firestore...</span>
+          </div>
         ) : filteredPatients.length > 0 ? (
-          <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden">
-            <table className="w-full text-left text-sm text-slate-300">
-              <thead className="bg-slate-800/80 text-xs uppercase text-slate-400">
-                <tr>
-                  <th className="px-6 py-4 font-medium">Patient Code</th>
-                  <th className="px-6 py-4 font-medium">Name</th>
-                  <th className="px-6 py-4 font-medium">Age / Sex</th>
-                  <th className="px-6 py-4 font-medium">Date Registered</th>
-                  <th className="px-6 py-4 font-medium text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {filteredPatients.map((patient) => (
-                  <tr key={patient.id} className="hover:bg-slate-800/80 transition">
-                    <td className="px-6 py-4 font-mono text-slate-400">{patient.patientCode}</td>
-                    <td className="px-6 py-4 font-medium text-slate-200">{patient.name}</td>
-                    <td className="px-6 py-4">{patient.age} / {patient.sex}</td>
-                    <td className="px-6 py-4 text-slate-400">
-                      {patient.createdAt && 'toDate' in patient.createdAt 
-                        ? patient.createdAt.toDate().toLocaleDateString() 
-                        : 'Unknown Date'}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <Link to={`/patients/${patient.id}`} className="text-blue-400 hover:text-blue-300 font-medium text-xs uppercase tracking-wider">
-                        View Profile
-                      </Link>
-                    </td>
+          <div className="clinical-card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-[#243447]">
+                <thead className="bg-[#EAF1F6] text-[10px] uppercase font-mono tracking-wider text-[#163B5C] border-b border-[#D9E2EA]">
+                  <tr>
+                    <th className="px-6 py-3.5 font-bold">Patient Information</th>
+                    <th className="px-6 py-3.5 font-bold">Hospital Code</th>
+                    <th className="px-6 py-3.5 font-bold">Demographics</th>
+                    <th className="px-6 py-3.5 font-bold">Registered</th>
+                    <th className="px-6 py-3.5 font-bold text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-[#D9E2EA]">
+                  {filteredPatients.map((patient) => (
+                    <tr key={patient.id} className="hover:bg-[#F8FAFC] transition group">
+                      {/* Name & ID */}
+                      <td className="px-6 py-4">
+                        <Link
+                          to={`/patients/${patient.id}`}
+                          className="font-semibold text-[#163B5C] group-hover:text-[#315D7D] transition text-sm block"
+                        >
+                          {patient.name}
+                        </Link>
+                        <span className="text-[10px] font-mono text-[#64748B]">
+                          ID: {patient.patientId || 'N/A'}
+                        </span>
+                      </td>
+
+                      {/* Hospital Code */}
+                      <td className="px-6 py-4">
+                        <span className="px-2 py-0.5 rounded bg-[#EAF1F6] border border-[#D0DFEB] text-[#163B5C] font-mono text-[11px] font-medium">
+                          {patient.patientCode}
+                        </span>
+                      </td>
+
+                      {/* Demographics */}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-1.5 text-[#475569]">
+                          <span>{patient.age} Yrs</span>
+                          <span>•</span>
+                          <span>{patient.sex}</span>
+                          {patient.bloodGroup && (
+                            <span className="text-[#3D8C87] font-mono ml-1 font-semibold">({patient.bloodGroup})</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Date Registered */}
+                      <td className="px-6 py-4 font-mono text-[#64748B] text-[11px]">
+                        {patient.createdAt && 'toDate' in patient.createdAt
+                          ? patient.createdAt.toDate().toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })
+                          : 'Recent'}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => navigate(`/dashboard?patientId=${patient.id}`)}
+                            className="px-2.5 py-1.5 rounded-md bg-[#EAF1F6] hover:bg-[#D0DFEB] text-[#163B5C] text-[11px] font-medium transition cursor-pointer"
+                            title="Screen New X-Ray"
+                          >
+                            + Scan X-Ray
+                          </button>
+                          <Link
+                            to={`/patients/${patient.id}`}
+                            className="px-2.5 py-1.5 rounded-md bg-white hover:bg-[#F8FAFC] text-[#475569] hover:text-[#163B5C] border border-[#D9E2EA] text-[11px] font-medium transition"
+                          >
+                            Profile →
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
-          <div className="text-center py-16 bg-slate-800/30 border border-slate-700/50 rounded-xl">
-            <p className="text-slate-400 text-sm mb-4">No patients found.</p>
-            {searchQuery === '' && (
-              <button onClick={() => navigate('/add-patient')} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition">
-                Add Your First Patient
+          <div className="text-center py-20 clinical-card border-dashed p-8">
+            <div className="w-12 h-12 rounded-lg bg-[#EAF1F6] flex items-center justify-center text-[#315D7D] text-xl mx-auto mb-3">
+              👤
+            </div>
+            <h3 className="text-base font-semibold text-[#163B5C] mb-1">No patient records found</h3>
+            <p className="text-xs text-[#64748B] max-w-sm mx-auto mb-6">
+              {searchQuery
+                ? `No patients match the search query "${searchQuery}".`
+                : 'Get started by registering your first patient to associate with X-ray scans.'}
+            </p>
+            {searchQuery ? (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="px-4 py-2 rounded-lg text-xs bg-[#EAF1F6] text-[#163B5C] hover:bg-[#D0DFEB] transition"
+              >
+                Clear Search Filter
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate('/add-patient')}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-white bg-[#315D7D] hover:bg-[#163B5C] shadow-xs transition"
+              >
+                + Register First Patient
               </button>
             )}
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </AppLayout>
   );
 };

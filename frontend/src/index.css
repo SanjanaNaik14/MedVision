@@ -1,1 +1,85 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-body: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* Professional Medical Palette */
+    --color-navy: #163B5C;
+    --color-medical-blue: #315D7D;
+    --color-soft-bg: #EAF1F6;
+    --color-white: #FFFFFF;
+    --color-page-bg: #F8FAFC;
+    --color-teal: #3D8C87;
+    --color-slate-text: #243447;
+    --color-border: #D9E2EA;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background-color: var(--color-page-bg);
+    color: var(--color-slate-text);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    color: var(--color-navy);
+  }
+}
+
+/* Clinical Surface Card */
+.clinical-card {
+  background-color: #FFFFFF;
+  border: 1px solid #D9E2EA;
+  border-radius: 0.875rem;
+  box-shadow: 0 1px 3px 0 rgba(22, 59, 92, 0.05), 0 1px 2px -1px rgba(22, 59, 92, 0.05);
+}
+
+/* Clinical Badge */
+.clinical-badge-teal {
+  background-color: #E6F3F2;
+  border: 1px solid #B8DFDC;
+  color: #2D6B67;
+}
+
+.clinical-badge-blue {
+  background-color: #EAF1F6;
+  border: 1px solid #D0DFEB;
+  color: #163B5C;
+}
+
+/* Understated Medical Frame */
+.clinical-frame {
+  border: 1px solid #D9E2EA;
+  border-radius: 1.25rem;
+  background-color: #FFFFFF;
+  box-shadow: 0 4px 20px -4px rgba(22, 59, 92, 0.08);
+}
+
+/* PACS High-Contrast Diagnostic Image Frame */
+.pacs-viewer-frame {
+  background-color: #0B131C;
+  border: 1px solid #243447;
+  border-radius: 0.75rem;
+}
+
+/* Custom Clean Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
